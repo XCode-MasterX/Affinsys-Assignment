@@ -410,7 +410,8 @@ public class Controller {
 
         HashMap<String, Object> resultMap = gson.fromJson(rows[0], HashMap.class);
         String storedHash = (String) resultMap.get("password");
-        String authToken = (String) resultMap.get("authToken");
+        Account acc = new Account().setUsername(body.get("username").toString()).setPassword(storedHash);
+        String authToken = acc.getAuthToken();
 
         if(!BCrypt.checkpw(body.get("password").toString(), storedHash)) {
             return new Response()
