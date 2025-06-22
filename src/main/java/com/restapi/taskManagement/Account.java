@@ -18,7 +18,7 @@ public class Account {
 
     public void setAuthToken(String auth) { authToken = auth; }
     public String getAuthToken() { 
-        if(authToken == null) authToken = username + ":" + password;
+        if(authToken == null) authToken = username + ":" + hash(password);
         return authToken;
     }
 
@@ -31,6 +31,7 @@ public class Account {
 
     public static String hash(Object o) { return hash(o.toString()); } 
     public static String hash(String toBeHashed) {
-        return BCrypt.hashpw(toBeHashed, BCrypt.gensalt());
+        String ret = BCrypt.hashpw(toBeHashed, BCrypt.gensalt());
+        return ret;
     }
 }

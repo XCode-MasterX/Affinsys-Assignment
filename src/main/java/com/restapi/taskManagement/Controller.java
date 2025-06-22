@@ -5,7 +5,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -17,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.mindrot.jbcrypt.BCrypt;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -28,6 +28,7 @@ public class Controller {
     private ActiveSessionHolder session = ActiveSessionHolder.getInstance();
     private Database db = Database.getInstance();
     private Gson gson = new Gson();
+    private String API_KEY = null;
 
     static final String AUTH = "authorization";
 
@@ -47,13 +48,13 @@ public class Controller {
     }
 
     // FUNCTION NO. 1
-    // Functionality Status: WORKS, no issues found on my part.
+    // Functionality Status: Works
     @PostMapping("/register")
     public Response createUser(@RequestBody HashMap<String, String> body) {
         if(!body.containsKey("username") || !body.containsKey("password"))
             return new Response().setStatus(400)
             .setError("Invalid request body")
-            .setMessage("The request body is missing username/password. Both are needed for registering.");
+            .setMessage("The request body is missing username or password. Both are needed for registering.");
 
         Account acc = new Account()
                 .setUsername(body.get("username"))
@@ -83,7 +84,7 @@ public class Controller {
     }
 
     // FUNCTION NO. 2
-    // Functionality Status: WORKS, no issues found on my part.
+    // Functionality Status: Works
     @PostMapping("/fund")
     public Response depositAmount(@RequestHeader HashMap<String, String> header, @RequestBody HashMap<String, Object> body) {
         Response res = checkAuthentication(header, "You need to provide an authorization token before being able deposit money.");       
@@ -110,8 +111,10 @@ public class Controller {
             .setMessage("The account you are trying to update doesn't exist.");
         }
 
+        // If the "amt" is not a number then default to 0, same goes for -ve amounts.
+        float addition = body.get("amt") instanceof Number x ? (x.floatValue() < 0 ? 0 : x.floatValue()) : 0;
+
         Account acc = getUserAccount(header.get(AUTH));
-        float addition = body.get("amt") instanceof Number x ? x.floatValue() : 0;
         acc.setBalance(acc.getBalance() + addition);
         int updated = db.updateQuery("update Users set balance = ? where authToken = ?", acc.getBalance(), acc.getAuthToken());
 
@@ -130,7 +133,7 @@ public class Controller {
     }
 
     // FUNCTION NO. 3
-    // Functionality Status: WORKS, no issues found on my part.
+    // Functionality Status: Works
     @PostMapping("/pay")
     public Response payUser(@RequestHeader HashMap<String, String> header, @RequestBody HashMap<String, Object> body) {
         Response res = checkAuthentication(header, "You need to provide an authorization token before being able deposit money.");
@@ -152,6 +155,13 @@ public class Controller {
         float amount = 0;
         if(body.get("amt") instanceof Number x)
             amount = x.floatValue();
+
+        if(amount < 0) {
+            return new Response()
+            .setStatus(400)
+            .setError("Negative amount")
+            .setMessage("You can't pay negative amount of funds.");
+        }
 
         Account sender = getUserAccount(header.get(AUTH));
         if(sender == null){
@@ -202,7 +212,6 @@ public class Controller {
         }
         //response.setBalance(amount);
 
-        System.out.println(Instant.now());
         db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", sender.getAuthToken(), "debit", amount, sender.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
         db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", reciever.getAuthToken(), "credit", amount, reciever.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
 
@@ -217,7 +226,13 @@ public class Controller {
         Response res = checkAuthentication(header, "You need to have Authorization before being able to check the balance.");
         if(res != null) return null;
 
+        
         Account acc = getUserAccount(header.get(AUTH));
+        if(currency.equals("INR"))
+            return new Balance()
+            .setBalance(acc.getBalance())
+            .setCurrency(currency);
+        
         float balance = (float) convert(acc.getBalance(), "INR", currency);
 
         return new Balance()
@@ -237,10 +252,9 @@ public class Controller {
 
         String rows[] = db.getQuery("select kind, amount, updated_bal, timestamp from Transactions where authToken = ? order by timestamp desc", acc.getAuthToken());
         
-        for(String row : rows) {
-            System.out.println(row);
+        for(String row : rows)
             transactionList.add(gson.fromJson(row, Transaction.class));
-        }
+        
         return transactionList;
     }
 
@@ -273,6 +287,13 @@ public class Controller {
         Product add = new Product();
         if(body.get("price") instanceof Number x)
             add.setPrice(x.floatValue());
+
+        if(add.getPrice() < 0) {
+            return new Response()
+            .setStatus(400)
+            .setError("Negative Pricing")
+            .setMessage("Negative price for a product is not valid.");
+        }
 
         add.setDescription(body.get("description").toString())
         .setName(body.get("name").toString());
@@ -365,7 +386,7 @@ public class Controller {
         .setMessage("Product purchased.").setBalance(acc.getBalance());
     }
 
-    // Functionality Status: 
+    // Functionality Status: Works
     @PostMapping("/login")
     public Response loginToSystem(@RequestBody HashMap<String, Object> body) {
         if(!body.containsKey("username"))
@@ -379,15 +400,24 @@ public class Controller {
             .setError("Required information missing from request body")
             .setMessage("You need to provide the PASSWORD in order to be able to login.");
 
-        String rows[] = db.getQuery("select authToken from Users where username = ? and password = ?", body.get("username"), Account.hash(body.get("password")));
+        String rows[] = db.getQuery("select password, authToken from Users where username = ?", body.get("username"));
 
         if(rows == null || rows.length == 0)
             return new Response()
             .setStatus(404)
-            .setError("No matching login found")
-            .setMessage("No such login info was found. You can register first, and then login.");
+            .setError("No valid username found")
+            .setMessage("No such user was found. You can register first, and then login.");
 
-        String authToken = gson.fromJson(rows[0], HashMap.class).get("authToken").toString();
+        HashMap<String, Object> resultMap = gson.fromJson(rows[0], HashMap.class);
+        String storedHash = (String) resultMap.get("password");
+        String authToken = (String) resultMap.get("authToken");
+
+        if(!BCrypt.checkpw(body.get("password").toString(), storedHash)) {
+            return new Response()
+            .setStatus(403)
+            .setError("Incorrect Password")
+            .setMessage("The password is wrong for the given username.");
+        }
 
         if(session.addSession(authToken))
             return new Response()
@@ -400,6 +430,7 @@ public class Controller {
             .setMessage("This authorization is already under use.");
     }
 
+    // functionality Status: Works
     @PostMapping("/terminate")
     public Response logoutSystem(@RequestHeader HashMap<String, String> header) {
         Response res = checkAuthentication(header, "No authorization found in header.");
@@ -437,17 +468,18 @@ public class Controller {
 
     public double convert(double amount, String from, String to) {
         try {
-            String rows[] = db.getQuery("select api_key from ServerInfo");
+            if(API_KEY == null) {
+                String rows[] = db.getQuery("select api_key from ServerInfo");
+                if(rows == null || rows.length == 0) return -1;
 
-            if(rows == null || rows.length == 0) return -1;
+                Type type = new TypeToken<HashMap<String, Object>>() {}.getType();
+                HashMap<String, Object> map = gson.fromJson(rows[0], type);
+                Object ret = map.getOrDefault("api_key", null);
 
-            Type type = new TypeToken<HashMap<String, Object>>() {}.getType();
-            HashMap<String, Object> map = gson.fromJson(rows[0], type);
-            Object ret = map.getOrDefault("api_key", null);
+                if(ret == null) return Double.MIN_VALUE;
 
-            if(ret == null) return Double.MIN_VALUE;
-
-            final String API_KEY = ret.toString();
+                API_KEY = ret.toString();
+            }
 
             String url = String.format(
                 "https://api.currencyapi.com/v3/latest?apikey=%s&base_currency=%s&currencies=%s",

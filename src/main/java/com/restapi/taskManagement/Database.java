@@ -195,7 +195,7 @@ public class Database {
         }
     }
 
-    // THIS METHOD WAS ONLY USED TO MANUALLY TEST THE QUERIES OF THIS PROGRAM.
+    // THIS METHOD IS ONLY TO BE USED TO MANUALLY TEST THE QUERIES OF THIS PROGRAM.
     public static void main(String args[]) {
         java.util.Scanner in = new java.util.Scanner(System.in);
 
