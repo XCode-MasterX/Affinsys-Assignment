@@ -71,7 +71,7 @@ public class Controller {
                 .setMessage("Your username is already under use by someone else.");
         }
 
-        int updated = db.updateQuery("insert into Users values(?, ?, ?, ?)", acc.getAuthToken(), acc.getUsername(), acc.getHashedPassword(), 0);
+        int updated = db.updateQuery("insert into Users values(?, ?, ?)", acc.getUsername(), acc.getHashedPassword(), 0);
         
         if(updated > 0)
             return new Response()
@@ -96,27 +96,12 @@ public class Controller {
             .setError("Information missing from request body")
             .setMessage("You need to provide the amount that you want to deposit to your account.");
 
-        int howMany = db.getQuery("select * from Users  where authToken = ?", header.get(AUTH)).length;
-
-        if(howMany > 1) {
-            return new Response()
-            .setStatus(500)
-            .setError("Multiple users with the same Auth Token???")
-            .setMessage("How did this even happen????");
-        }
-        else if(howMany == 0) {
-            return new Response()
-            .setStatus(404)
-            .setError("No accounts found with your auth token.")
-            .setMessage("The account you are trying to update doesn't exist.");
-        }
-
         // If the "amt" is not a number then default to 0, same goes for -ve amounts.
         float addition = body.get("amt") instanceof Number x ? (x.floatValue() < 0 ? 0 : x.floatValue()) : 0;
 
         Account acc = getUserAccount(header.get(AUTH));
         acc.setBalance(acc.getBalance() + addition);
-        int updated = db.updateQuery("update Users set balance = ? where authToken = ?", acc.getBalance(), acc.getAuthToken());
+        int updated = db.updateQuery("update Users set balance = ? where username = ?", acc.getBalance(), acc.getUsername());
 
         if(updated == -1) {
             return new Response()
@@ -125,7 +110,7 @@ public class Controller {
             .setMessage("Way too much wrong here. 1) How were you able to login? 2) Why do you not have an account already?");
         }
 
-        db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", acc.getAuthToken(), "credit", addition, acc.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
+        db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", acc.getUsername(), "credit", addition, acc.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
 
         return new Response()
         .setStatus(200)
@@ -212,8 +197,8 @@ public class Controller {
         }
         //response.setBalance(amount);
 
-        db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", sender.getAuthToken(), "debit", amount, sender.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
-        db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", reciever.getAuthToken(), "credit", amount, reciever.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
+        db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", sender.getUsername(), "debit", amount, sender.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
+        db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", reciever.getUsername(), "credit", amount, reciever.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
 
         return new Response().setStatus(200)
         .setMessage("Successfully transferred funds.");
@@ -225,7 +210,6 @@ public class Controller {
     public Balance getBalance(@RequestHeader HashMap<String, String> header, @RequestParam String currency) {
         Response res = checkAuthentication(header, "You need to have Authorization before being able to check the balance.");
         if(res != null) return null;
-
         
         Account acc = getUserAccount(header.get(AUTH));
         if(currency.equals("INR"))
@@ -250,7 +234,7 @@ public class Controller {
         ArrayList<Transaction> transactionList = new ArrayList<>();
         Account acc = getUserAccount(header.get(AUTH));
 
-        String rows[] = db.getQuery("select kind, amount, updated_bal, timestamp from Transactions where authToken = ? order by timestamp desc", acc.getAuthToken());
+        String rows[] = db.getQuery("select kind, amount, updated_bal, timestamp from Transactions where username = ? order by timestamp desc", acc.getUsername());
         
         for(String row : rows)
             transactionList.add(gson.fromJson(row, Transaction.class));
@@ -373,8 +357,8 @@ public class Controller {
 
         acc.setBalance(acc.getBalance() - product.getPrice());
 
-        db.updateQuery("update Users set balance = ? where authToken = ?", acc.getBalance(), acc.getAuthToken());
-        db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", acc.getAuthToken(), "debit", product.getPrice(), acc.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
+        db.updateQuery("update Users set balance = ? where username = ?", acc.getBalance(), acc.getUsername());
+        db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", acc.getUsername(), "debit", product.getPrice(), acc.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
         
         if(db.deleteQuery("delete from Products where id = ?", product.getId()) == 0)
             return new Response()
@@ -400,7 +384,7 @@ public class Controller {
             .setError("Required information missing from request body")
             .setMessage("You need to provide the PASSWORD in order to be able to login.");
 
-        String rows[] = db.getQuery("select password, authToken from Users where username = ?", body.get("username"));
+        String rows[] = db.getQuery("select password, balance from Users where username = ?", body.get("username"));
 
         if(rows == null || rows.length == 0)
             return new Response()
@@ -410,7 +394,10 @@ public class Controller {
 
         HashMap<String, Object> resultMap = gson.fromJson(rows[0], HashMap.class);
         String storedHash = (String) resultMap.get("password");
-        Account acc = new Account().setUsername(body.get("username").toString()).setPassword(storedHash);
+        Account acc = new Account()
+        .setUsername(body.get("username").toString())
+        .setPassword(storedHash)
+        .setBalance(Float.parseFloat(resultMap.get("balance").toString()));
         String authToken = acc.getAuthToken();
 
         if(!BCrypt.checkpw(body.get("password").toString(), storedHash)) {
@@ -420,7 +407,7 @@ public class Controller {
             .setMessage("The password is wrong for the given username.");
         }
 
-        if(session.addSession(authToken))
+        if(session.addSession(authToken, acc))
             return new Response()
             .setStatus(200)
             .setMessage("Login was successful. Your auth token = " + authToken);
@@ -458,14 +445,7 @@ public class Controller {
         return id[id.length - 1] + 1;
     }
 
-    public Account getUserAccount(String authToken) {
-        String rows[] = db.getQuery("select * from Users where authToken = ?;", authToken);
-
-        if(rows == null || rows.length == 0) return null;
-
-        Account acc = gson.fromJson(rows[0], Account.class);
-        return acc;
-    }
+    public Account getUserAccount(String authToken) { return session.getAccount(authToken); }
 
     public double convert(double amount, String from, String to) {
         try {

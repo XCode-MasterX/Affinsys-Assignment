@@ -18,11 +18,10 @@ public class Account {
 
     public void setAuthToken(String auth) { authToken = auth; }
     public String getAuthToken() { 
-        if(authToken == null) authToken = username + ":" + hash(password);
-        return authToken;
+        return username + ":" + hash(password);
     }
 
-    public void setBalance(float bal) { this.balance = bal; }
+    public Account setBalance(float bal) { this.balance = bal; return this; }
     public float getBalance() { return balance;}
 
     public boolean equals(Account x) {
