@@ -22,7 +22,7 @@ public class ActiveSessionHolder {
     }
 
     public boolean addSession(String authToken, Account account) {
-        if(!activeSessions.containsValue(account)) {
+        if(activeSessions.containsValue(account)) {
             for(Map.Entry<String, Account> entry: activeSession.entrySet()) {
                 if(entry.getValue().equals(account))
                 {
