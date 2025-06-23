@@ -22,11 +22,22 @@ public class ActiveSessionHolder {
     }
 
     public boolean addSession(String authToken, Account account) {
+        if(!activeSessions.containsValue(account)) {
+            for(Map.Entry<String, Account> entry: activeSession.entrySet()) {
+                if(entry.getValue().equals(account))
+                {
+                    activeSessions.remove(entry.getKey());
+                    activeSesisons.put(authToken, account);
+                    return true;
+                }
+            }
+        }
+
         if(!activeSessions.containsKey(authToken)) {
             activeSessions.put(authToken, account);
-            //System.out.println(activeSessions);
             return true;
         }
+
         return false;
     }
     

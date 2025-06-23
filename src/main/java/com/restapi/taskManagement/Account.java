@@ -25,7 +25,7 @@ public class Account {
     public float getBalance() { return balance;}
 
     public boolean equals(Account x) {
-        return this.authToken.equals(x.authToken);
+        return this.username.equals(x.username);
     }
 
     public static String hash(Object o) { return hash(o.toString()); } 
