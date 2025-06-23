@@ -39,7 +39,7 @@ public class Controller {
             .setError("No Authorization token found")
             .setMessage(message);
 
-        if(session.isSessionActive(header.get(AUTH))) return null;
+        if(session.isSessionActive(header.get(AUTH))) return new Response().setStatus(409).setError("Same authorization used by different account.").setMessage("HOW?? Shouldn't be possible in the first place.");
 
         return new Response()
         .setStatus(401)
