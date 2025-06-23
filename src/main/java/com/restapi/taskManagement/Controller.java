@@ -357,14 +357,15 @@ public class Controller {
 
         acc.setBalance(acc.getBalance() - product.getPrice());
 
-        db.updateQuery("update Users set balance = ? where username = ?", acc.getBalance(), acc.getUsername());
-        db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", acc.getUsername(), "debit", product.getPrice(), acc.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
         
-        if(db.deleteQuery("delete from Products where id = ?", product.getId()) == 0)
+        if(db.deleteQuery("delete from Products where id = ?", product.getId()) == 0) {
             return new Response()
             .setStatus(404)
             .setError("Product doesn't exist");
-
+        }
+        
+        db.updateQuery("update Users set balance = ? where username = ?", acc.getBalance(), acc.getUsername());
+        db.updateQuery("insert into Transactions values(?, ?, ?, ?, ?)", acc.getUsername(), "debit", product.getPrice(), acc.getBalance(), LocalDateTime.now(ZoneId.of("UTC")));
         return new BuyResponse()
         .setStatus(200)
         .setMessage("Product purchased.").setBalance(acc.getBalance());
